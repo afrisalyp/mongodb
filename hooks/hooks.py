@@ -13,6 +13,7 @@ import re
 import signal
 import socket
 import time
+import glob
 
 from os import chmod
 from os import remove
@@ -883,6 +884,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 # Hook functions
 ###############################################################################
 def install_hook():
+    juju_log("runing any pre-install hooks")
+    for f in glob.glob('exec.d/*/charm-pre-install'):
+        if os.path.isfile(f) and os.access(f, os.X_OK):
+            subprocess.check_call(['sh', '-c', f])
     juju_log("Installing mongodb")
     if not apt_get_install('mongodb'):
         juju_log("Installation of mongodb failed.")
