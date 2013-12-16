@@ -5,20 +5,25 @@ Created on Aug 1, 2012
 @author: negronjl
 '''
 
-import os
-import sys
+import commands
 import json
-import subprocess
+import os
 import re
 import signal
 import socket
+import subprocess
+import sys
 import time
 import glob
+import yaml
+import argparse
 
 from os import chmod
 from os import remove
 from os.path import exists
 from string import Template
+from textwrap import dedent
+from yaml.constructor import ConstructorError
 
 ###############################################################################
 # Supporting functions
@@ -319,7 +324,6 @@ def process_check_pidfile(pidfile=None):
 ###############################################################################
 # Global variables
 ###############################################################################
-hook_name = os.path.basename(sys.argv[0])
 default_mongodb_config = "/etc/mongodb.conf"
 default_mongodb_init_config = "/etc/init/mongodb.conf"
 default_mongos_list = "/etc/mongos.list"
@@ -817,12 +821,15 @@ def restart_mongod(wait_for=default_wait_for, max_tries=default_max_tries):
     if os.path.exists('/var/lib/mongodb/mongod.lock'):
         os.remove('/var/lib/mongodb/mongod.lock')
 
-    service('mongodb', 'start')
+    if not service('mongodb', 'start'):
+        return False
 
-    while service('mongodb', 'status') and \
-    not port_check(my_hostname, my_port) and \
-    current_try < max_tries:
-        juju_log("restart_mongod: Waiting for MongoDB to be ready ...")
+    while (service('mongodb', 'status') and
+           not port_check(my_hostname, my_port) and
+           current_try < max_tries):
+        juju_log(
+            "restart_mongod: Waiting for MongoDB to be ready ({}/{})".format(
+            current_try, max_tries))
         time.sleep(wait_for)
         current_try += 1
 
@@ -889,7 +896,7 @@ def install_hook():
         if os.path.isfile(f) and os.access(f, os.X_OK):
             subprocess.check_call(['sh', '-c', f])
     juju_log("Installing mongodb")
-    if not apt_get_install('mongodb'):
+    if not apt_get_install(['mongodb', 'python-yaml']):
         juju_log("Installation of mongodb failed.")
         return(False)
     else:
@@ -902,6 +909,34 @@ def config_changed():
     config_data = config_get()
     print "config_data: ", config_data
     mongodb_config = open(default_mongodb_config).read()
+
+    # Trigger volume initialization logic for permanent storage
+    volid = volume_get_volume_id()
+    if not volid:
+        ## Invalid configuration (whether ephemeral, or permanent)
+        stop_hook()
+        mounts = volume_get_all_mounted()
+        if mounts:
+            juju_log("current mounted volumes: {}".format(mounts))
+        juju_log(
+            "Disabled and stopped mongodb service, "
+            "because of broken volume configuration - check "
+            "'volume-ephemeral-storage' and 'volume-map'")
+        sys.exit(1)
+    if volume_is_permanent(volid):
+        ## config_changed_volume_apply will stop the service if it founds
+        ## it necessary, ie: new volume setup
+        if config_changed_volume_apply():
+            start_hook()
+        else:
+            stop_hook()
+            mounts = volume_get_all_mounted()
+            if mounts:
+                juju_log("current mounted volumes: {}".format(mounts))
+            juju_log(
+                "Disabled and stopped mongodb service "
+                "(config_changed_volume_apply failure)")
+            sys.exit(1)
 
     # current ports
     current_mongodb_port = re.search('^#*port\s+=\s+(\w+)',
@@ -936,6 +971,9 @@ def config_changed():
 
     # extra demon options
     update_daemon_options(config_data['extra_daemon_options'])
+
+    # write mongodb logrotate configuration file
+    write_logrotate_config(config_data)
 
     # restart mongodb
     restart_mongod()
@@ -1012,6 +1050,7 @@ def stop_hook():
     try:
         retVal = service('mongodb', 'stop')
         os.remove('/var/lib/mongodb/mongod.lock')
+        #FIXME Need to check if this is still needed
     except Exception, e:
         juju_log(str(e))
         retVal = False
@@ -1199,44 +1238,279 @@ def mongos_relation_broken():
 #    return(update_file(default_mongos_list, '\n'.join(config_servers)))
     return(True)
 
+
+def run(command, exit_on_error=True):
+    '''Run a command and return the output.'''
+    try:
+        juju_log(command)
+        return subprocess.check_output(
+            command, stderr=subprocess.STDOUT, shell=True)
+    except subprocess.CalledProcessError, e:
+        juju_log("status=%d, output=%s" % (e.returncode, e.output))
+        if exit_on_error:
+            sys.exit(e.returncode)
+        else:
+            raise
+
+
+###############################################################################
+# Volume managment
+###############################################################################
+#------------------------------
+# Get volume-id from juju config "volume-map" dictionary as
+#     volume-map[JUJU_UNIT_NAME]
+# @return  volid
+#
+#------------------------------
+def volume_get_volid_from_volume_map():
+    config_data = config_get()
+    volume_map = {}
+    try:
+        volume_map = yaml.load(config_data['volume-map'].strip())
+        if volume_map:
+            juju_unit_name = os.environ['JUJU_UNIT_NAME']
+            volid = volume_map.get(juju_unit_name)
+            juju_log("Juju unit name: %s Volid:%s" % (juju_unit_name, volid))
+            return volid
+    except ConstructorError as e:
+        juju_log("invalid YAML in 'volume-map': {}".format(e))
+    return None
+
+
+# Is this volume_id permanent ?
+# @returns  True if volid set and not --ephemeral, else:
+#           False
+def volume_is_permanent(volid):
+    if volid and volid != "--ephemeral":
+        return True
+    return False
+
+
+#------------------------------
+# Returns a mount point from passed vol-id, e.g. /srv/juju/vol-000012345
+#
+# @param  volid          volume id (as e.g. EBS volid)
+# @return mntpoint_path  eg /srv/juju/vol-000012345
+#------------------------------
+def volume_mount_point_from_volid(volid):
+    if volid and volume_is_permanent(volid):
+        return "/srv/juju/%s" % volid
+    return None
+
+
+# Do we have a valid storage state?
+# @returns  volid
+#           None    config state is invalid - we should not serve
+def volume_get_volume_id():
+    config_data = config_get()
+    ephemeral_storage = config_data['volume-ephemeral-storage']
+    volid = volume_get_volid_from_volume_map()
+    juju_unit_name = os.environ['JUJU_UNIT_NAME']
+    if ephemeral_storage in [True, 'yes', 'Yes', 'true', 'True']:
+        if volid:
+            juju_log(
+                "volume-ephemeral-storage is True, but " +
+                "volume-map[{!r}] -> {}".format(juju_unit_name, volid))
+            return None
+        else:
+            return "--ephemeral"
+    else:
+        if not volid:
+            juju_log(
+                "volume-ephemeral-storage is False, but "
+                "no volid found for volume-map[{!r}]".format(
+                    juju_unit_name))
+            return None
+        juju_log("Volid:%s" % (volid))
+    return volid
+
+
+# Initialize and/or mount permanent storage, it straightly calls
+# shell helper
+def volume_init_and_mount(volid):
+    juju_log("Initialize and mount volume")
+    command = ("scripts/volume-common.sh call " +
+               "volume_init_and_mount %s" % volid)
+    run(command)
+    return True
+
+
+def volume_get_all_mounted():
+    command = ("mount |egrep /srv/juju")
+    status, output = commands.getstatusoutput(command)
+    if status != 0:
+        return None
+    return output
+
+#------------------------------------------------------------------------------
+# Core logic for permanent storage changes:
+# NOTE the only 2 "True" return points:
+#   1) symlink already pointing to existing storage (no-op)
+#   2) new storage properly initialized:
+#     - volume: initialized if not already (fdisk, mkfs),
+#       mounts it to e.g.:  /srv/juju/vol-000012345
+#     - if fresh new storage dir: rsync existing data
+#     - manipulate /var/lib/mongodb/VERSION/CLUSTER symlink
+#------------------------------------------------------------------------------
+def config_changed_volume_apply():
+    config_data = config_get()
+    data_directory_path = config_data["dbpath"]
+    assert(data_directory_path)
+    volid = volume_get_volume_id()
+    if volid:
+        if volume_is_permanent(volid):
+            if not volume_init_and_mount(volid):
+                juju_log(
+                    "volume_init_and_mount failed, not applying changes")
+                return False
+
+        if not os.path.exists(data_directory_path):
+            juju_log(
+                "mongodb data dir {} not found, "
+                "not applying changes.".format(data_directory_path))
+            return False
+
+        mount_point = volume_mount_point_from_volid(volid)
+        new_mongo_dir = os.path.join(mount_point, "mongodb")
+        if not mount_point:
+            juju_log(
+                "invalid mount point from volid = {}, "
+                "not applying changes.".format(mount_point))
+            return False
+
+        if os.path.islink(data_directory_path):
+            juju_log(
+                "mongodb data dir '%s' already points "
+                "to %s, skipping storage changes." % (data_directory_path, new_mongo_dir))
+            juju_log(
+                "existing-symlink: to fix/avoid UID changes from "
+                "previous units, doing: "
+                "chown -R mongodb:mongodb {}".format(new_mongo_dir))
+            run("chown -R mongodb:mongodb %s" % new_mongo_dir)
+            return True
+
+        # Create a directory structure below "new" mount_point
+        curr_dir_stat = os.stat(data_directory_path)
+        if not os.path.isdir(new_mongo_dir):
+            juju_log("mkdir %s" % new_mongo_dir)
+            os.mkdir(new_mongo_dir)
+            # copy permissions from current data_directory_path
+            os.chown(new_mongo_dir, curr_dir_stat.st_uid, curr_dir_stat.st_gid)
+            os.chmod(new_mongo_dir, curr_dir_stat.st_mode)
+        # Carefully build this symlink, e.g.:
+        # /var/lib/mongodb ->
+        # /srv/juju/vol-000012345/mongodb
+        # but keep previous "main/"  directory, by renaming it to
+        # main-$TIMESTAMP
+        if not stop_hook():
+            juju_log("stop_hook() failed - can't migrate data.")
+            return False
+        if not os.path.exists(new_mongo_dir):
+            juju_log("migrating mongo data {}/ -> {}/".format(
+                data_directory_path, new_mongo_dir))
+            # void copying PID file to perm storage (shouldn't be any...)
+            command = "rsync -a {}/ {}/".format(
+                data_directory_path, new_mongo_dir)
+            juju_log("run: {}".format(command))
+            run(command)
+        try:
+            os.rename(data_directory_path, "{}-{}".format(
+                data_directory_path, int(time.time())))
+            juju_log("NOTICE: symlinking {} -> {}".format(
+                new_mongo_dir, data_directory_path))
+            os.symlink(new_mongo_dir, data_directory_path)
+            juju_log(
+                "after-symlink: to fix/avoid UID changes from "
+                "previous units, doing: "
+                "chown -R mongodb:mongodb {}".format(new_mongo_dir))
+            run("chown -R mongodb:mongodb {}".format(new_mongo_dir))
+            return True
+        except OSError:
+            juju_log("failed to symlink {} -> {}".format(
+                data_directory_path, mount_point))
+            return False
+    else:
+        juju_log(
+            "Invalid volume storage configuration, not applying changes")
+    return False
+
+
+#------------------------------------------------------------------------------
+# Write mongodb-server logrotate configuration
+#------------------------------------------------------------------------------
+def write_logrotate_config(config_data,
+                           conf_file = '/etc/logrotate.d/mongodb-server'):
+
+    juju_log('Writing {}.'.format(conf_file))
+    contents = dedent("""
+        {logpath} {{
+                {logrotate-frequency}
+                rotate {logrotate-rotate}
+                maxsize {logrotate-maxsize}
+                copytruncate
+                delaycompress
+                compress
+                noifempty
+                missingok
+        }}""")
+    contents = contents.format(**config_data)
+    try:
+        with open(conf_file, 'w') as f:
+            f.write(contents)
+    except IOError:
+        juju_log('Could not write {}.'.format(conf_file))
+        return False
+    return True
+
+
 ###############################################################################
 # Main section
 ###############################################################################
-if hook_name == "install":
-    retVal = install_hook()
-elif hook_name == "config-changed":
-    retVal = config_changed()
-elif hook_name == "start":
-    retVal = start_hook()
-elif hook_name == "stop":
-    retVal = stop_hook()
-elif hook_name == "database-relation-joined":
-    retVal = database_relation_joined()
-elif hook_name == "replica-set-relation-joined":
-    retVal = replica_set_relation_joined()
-elif hook_name == "replica-set-relation-changed":
-    retVal = replica_set_relation_changed()
-elif hook_name == "configsvr-relation-joined":
-    retVal = configsvr_relation_joined()
-elif hook_name == "configsvr-relation-changed":
-    retVal = configsvr_relation_changed()
-elif hook_name == "mongos-cfg-relation-joined":
-    retVal = mongos_relation_joined()
-elif hook_name == "mongos-cfg-relation-changed":
-    retVal = mongos_relation_changed()
-elif hook_name == "mongos-cfg-relation-broken":
-    retVal = mongos_relation_broken()
-elif hook_name == "mongos-relation-joined":
-    retVal = mongos_relation_joined()
-elif hook_name == "mongos-relation-changed":
-    retVal = mongos_relation_changed()
-elif hook_name == "mongos-relation-broken":
-    retVal = mongos_relation_broken()
-else:
-    print "Unknown hook"
-    retVal = False
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-H', '--hook_name', dest='hook_name',
+                        help='hook to call')
+    args = parser.parse_args()
+    if args.hook_name is not None:
+        hook_name = args.hook_name
+    else:
+        hook_name = os.path.basename(sys.argv[0])
 
-if retVal is True:
-    sys.exit(0)
-else:
-    sys.exit(1)
+    if hook_name == "install":
+        retVal = install_hook()
+    elif hook_name == "config-changed":
+        retVal = config_changed()
+    elif hook_name == "start":
+        retVal = start_hook()
+    elif hook_name == "stop":
+        retVal = stop_hook()
+    elif hook_name == "database-relation-joined":
+        retVal = database_relation_joined()
+    elif hook_name == "replica-set-relation-joined":
+        retVal = replica_set_relation_joined()
+    elif hook_name == "replica-set-relation-changed":
+        retVal = replica_set_relation_changed()
+    elif hook_name == "configsvr-relation-joined":
+        retVal = configsvr_relation_joined()
+    elif hook_name == "configsvr-relation-changed":
+        retVal = configsvr_relation_changed()
+    elif hook_name == "mongos-cfg-relation-joined":
+        retVal = mongos_relation_joined()
+    elif hook_name == "mongos-cfg-relation-changed":
+        retVal = mongos_relation_changed()
+    elif hook_name == "mongos-cfg-relation-broken":
+        retVal = mongos_relation_broken()
+    elif hook_name == "mongos-relation-joined":
+        retVal = mongos_relation_joined()
+    elif hook_name == "mongos-relation-changed":
+        retVal = mongos_relation_changed()
+    elif hook_name == "mongos-relation-broken":
+        retVal = mongos_relation_broken()
+    else:
+        print "Unknown hook"
+        retVal = False
+
+    if retVal is True:
+        sys.exit(0)
+    else:
+        sys.exit(1)

@@ -311,9 +311,9 @@ We'll save this one as ~/mongodb-shard.yaml
     juju add-relation mongos:mongos-cfg configsvr:configsvr
 
 ### Connect each Shard to the Mongo shell (mongos)
-    juju add-realtion mongos:mongos shard1:database
-    juju add-realtion mongos:mongos shard2:database
-    juju add-realtion mongos:mongos shard3:database
+    juju add-relation mongos:mongos shard1:database
+    juju add-relation mongos:mongos shard2:database
+    juju add-relation mongos:mongos shard3:database
 
 With the above commands, we should now have a three replica-set sharded cluster running.
 Using the default configuration, here are some details of our sharded cluster:
@@ -326,6 +326,11 @@ To verify that your sharded cluster is running, connect to the mongo shell and r
 - mongo --host <mongos_host>:<mongos_port>
 - run sh.status()
 You should see your the hosts for your shards in the status output.
+
+To deploy mongodb using permanent volume on Openstack, the permanent volume should be attached to the mongodb unit just after the deployment, then the configuration should be updated like follows.
+
+### Use a permanent Openstack volume to store mongodb data.
+    juju set mongodb volume-dev-regexp="/dev/vdc" volume-map='{"mongodb/0": "vol-id-00000000000000"}' volume-ephemeral-storage=false
 
 ## Backups
 
