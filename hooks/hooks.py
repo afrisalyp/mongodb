@@ -1148,6 +1148,11 @@ def replica_set_relation_changed():
     return(True)
 
 
+def data_relation_changed():
+    juju_log("data_relation_changed")
+    return(True)
+
+
 def configsvr_relation_joined():
     juju_log("configsvr_relation_joined")
     my_hostname = unit_get('public-address')
@@ -1506,6 +1511,8 @@ if __name__ == '__main__':
         retVal = mongos_relation_changed()
     elif hook_name == "mongos-relation-broken":
         retVal = mongos_relation_broken()
+    elif hook_name == "data-relation-changed":
+        retVal = data_relation_changed()
     else:
         print "Unknown hook"
         retVal = False
