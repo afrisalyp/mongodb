@@ -21,11 +21,17 @@ provides:
     interface: mongodb
   configsvr:
     interface: shard
+  data:
+    interface: block-storage
+    scope: container
+    optional: true
 requires:
   mongos-cfg:
     interface: shard
   mongos:
     interface: mongodb
+  persistent-storage:
+    interface: directory-path
 peers:
   replica-set:
     interface: mongodb-replica-set
