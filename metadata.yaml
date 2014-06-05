@@ -30,8 +30,6 @@ requires:
     interface: shard
   mongos:
     interface: mongodb
-  persistent-storage:
-    interface: directory-path
 peers:
   replica-set:
     interface: mongodb-replica-set
