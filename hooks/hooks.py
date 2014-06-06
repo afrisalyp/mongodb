@@ -1148,6 +1148,14 @@ def replica_set_relation_changed():
     return(True)
 
 
+def data_relation_joined():
+    juju_log("data_relation_joined")
+    return(relation_set(
+        {
+            'mountpoint': '/mnt/mongodb-data'
+        }))
+
+
 def data_relation_changed():
     juju_log("data_relation_changed")
     return(True)
