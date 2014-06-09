@@ -910,33 +910,39 @@ def config_changed():
     print "config_data: ", config_data
     mongodb_config = open(default_mongodb_config).read()
 
-    # Trigger volume initialization logic for permanent storage
-    volid = volume_get_volume_id()
-    if not volid:
-        ## Invalid configuration (whether ephemeral, or permanent)
-        stop_hook()
-        mounts = volume_get_all_mounted()
-        if mounts:
-            juju_log("current mounted volumes: {}".format(mounts))
-        juju_log(
-            "Disabled and stopped mongodb service, "
-            "because of broken volume configuration - check "
-            "'volume-ephemeral-storage' and 'volume-map'")
-        sys.exit(1)
-    if volume_is_permanent(volid):
-        ## config_changed_volume_apply will stop the service if it founds
-        ## it necessary, ie: new volume setup
-        if config_changed_volume_apply():
-            start_hook()
-        else:
+    if os.path.islink('/srv/mongodb-data'):
+        # We have a mountpoint available created using the storage subordinate,
+        # just symlink to that and move
+        if os.path.realpath(config_data['dbpath']) != '/srv/mongodb-data':
+            os.symlink(config_data['dbpath'], '/srv/mongodb-data')
+    else:
+        # Trigger volume initialization logic for permanent storage
+        volid = volume_get_volume_id()
+        if not volid:
+            ## Invalid configuration (whether ephemeral, or permanent)
             stop_hook()
             mounts = volume_get_all_mounted()
             if mounts:
                 juju_log("current mounted volumes: {}".format(mounts))
             juju_log(
-                "Disabled and stopped mongodb service "
-                "(config_changed_volume_apply failure)")
+                "Disabled and stopped mongodb service, "
+                "because of broken volume configuration - check "
+                "'volume-ephemeral-storage' and 'volume-map'")
             sys.exit(1)
+        if volume_is_permanent(volid):
+            ## config_changed_volume_apply will stop the service if it founds
+            ## it necessary, ie: new volume setup
+            if config_changed_volume_apply():
+                start_hook()
+            else:
+                stop_hook()
+                mounts = volume_get_all_mounted()
+                if mounts:
+                    juju_log("current mounted volumes: {}".format(mounts))
+                juju_log(
+                    "Disabled and stopped mongodb service "
+                    "(config_changed_volume_apply failure)")
+                sys.exit(1)
 
     # current ports
     current_mongodb_port = re.search('^#*port\s+=\s+(\w+)',
@@ -1158,7 +1164,29 @@ def data_relation_joined():
 
 def data_relation_changed():
     juju_log("data_relation_changed")
-    return(True)
+    mount = relation_get('mount')
+
+    if not mount or not os.path.exists(mount):
+        juju_log("mountpoint from storage subordinate not ready, let's wait")
+        return(True)
+
+    if (os.path.exists('/srv/mongodb-data')
+          and os.path.realpath('/srv/mongodb-data') != '/mnt/mongodb-data'):
+        os.unlink('/srv/mongodb-data')
+
+    if not os.path.exists('/srv/mongodb-data'):
+        os.symlink('/srv/mongodb-data', '/mnt/mongodb-data')
+
+    return(config_changed())
+
+
+def data_relation_departed():
+    juju_log("data_relation_departed")
+
+    if os.path.exists('/srv/mongodb-data'):
+        os.unlink('/srv/mongodb-data')
+
+    return(config_changed())
 
 
 def configsvr_relation_joined():
