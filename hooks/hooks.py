@@ -99,6 +99,14 @@ def config_get(scope=None):
         config_data = None
     finally:
         juju_log("config_get: %s returns: %s" % (scope, config_data))
+
+        if config_data and os.path.islink(mounted_data_symlink):
+            # We have a mountpoint available from the storage subordinate, use
+            # that for dbpath instead
+            juju_log("%s is symlinked, using that for dbpath" % (
+                      mounted_data_symlink,))
+            config_data['dbpath'] = mounted_data_symlink
+
         return(config_data)
 
 
@@ -329,6 +337,8 @@ default_mongodb_init_config = "/etc/init/mongodb.conf"
 default_mongos_list = "/etc/mongos.list"
 default_wait_for = 20
 default_max_tries = 20
+mounted_data_symlink = '/srv/mongodb-data'
+data_mountpoint = '/mnt/mongodb-data'
 
 
 ###############################################################################
@@ -910,12 +920,10 @@ def config_changed():
     print "config_data: ", config_data
     mongodb_config = open(default_mongodb_config).read()
 
-    if os.path.islink('/srv/mongodb-data'):
-        # We have a mountpoint available created using the storage subordinate,
-        # just symlink to that and move
-        if os.path.realpath(config_data['dbpath']) != '/srv/mongodb-data':
-            os.symlink(config_data['dbpath'], '/srv/mongodb-data')
-    else:
+    if not os.path.islink(mounted_data_symlink):
+        # We only do this if the storage subordinate hasn't given us a
+        # mountpoint.
+
         # Trigger volume initialization logic for permanent storage
         volid = volume_get_volume_id()
         if not volid:
@@ -1158,7 +1166,7 @@ def data_relation_joined():
     juju_log("data_relation_joined")
     return(relation_set(
         {
-            'mountpoint': '/mnt/mongodb-data'
+            'mountpoint': data_mountpoint
         }))
 
 
@@ -1170,12 +1178,10 @@ def data_relation_changed():
         juju_log("mountpoint from storage subordinate not ready, let's wait")
         return(True)
 
-    if (os.path.exists('/srv/mongodb-data')
-          and os.path.realpath('/srv/mongodb-data') != '/mnt/mongodb-data'):
-        os.unlink('/srv/mongodb-data')
+    if os.path.exists(mounted_data_symlink):
+        os.unlink(mounted_data_symlink)
 
-    if not os.path.exists('/srv/mongodb-data'):
-        os.symlink('/srv/mongodb-data', '/mnt/mongodb-data')
+    os.symlink(mounted_data_symlink, data_mountpoint)
 
     return(config_changed())
 
@@ -1183,8 +1189,8 @@ def data_relation_changed():
 def data_relation_departed():
     juju_log("data_relation_departed")
 
-    if os.path.exists('/srv/mongodb-data'):
-        os.unlink('/srv/mongodb-data')
+    if os.path.exists(mounted_data_symlink):
+        os.unlink(mounted_data_symlink)
 
     return(config_changed())
 
