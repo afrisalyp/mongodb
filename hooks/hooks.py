@@ -1327,9 +1327,10 @@ def volume_mount_point_from_volid(volid):
 #           None    config state is invalid - we should not serve
 def volume_get_volume_id():
 
+    relation_id = "data:%s" % (os.environ['JUJU_UNIT_NAME'].split('/')[1],)
     volume_map = relation_get('volume_map',
                               os.environ['JUJU_UNIT_NAME'],
-                              'data')
+                              relation_id)
     if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
         return volume_map[os.environ['JUJU_UNIT_NAME']]
 
