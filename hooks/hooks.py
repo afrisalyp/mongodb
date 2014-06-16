@@ -1538,8 +1538,12 @@ if __name__ == '__main__':
         retVal = mongos_relation_changed()
     elif hook_name == "mongos-relation-broken":
         retVal = mongos_relation_broken()
+    elif hook_name == "data-relation-joined":
+        retVal = data_relation_joined()
     elif hook_name == "data-relation-changed":
         retVal = data_relation_changed()
+    elif hook_name == "data-relation-departed":
+        retVal = data_relation_departed()
     else:
         print "Unknown hook"
         retVal = False
