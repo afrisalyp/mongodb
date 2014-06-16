@@ -99,14 +99,6 @@ def config_get(scope=None):
         config_data = None
     finally:
         juju_log("config_get: %s returns: %s" % (scope, config_data))
-
-        if config_data and os.path.islink(mounted_data_symlink):
-            # We have a mountpoint available from the storage subordinate, use
-            # that for dbpath instead
-            juju_log("%s is symlinked, using that for dbpath" % (
-                      mounted_data_symlink,))
-            config_data['dbpath'] = mounted_data_symlink
-
         return(config_data)
 
 
@@ -337,8 +329,6 @@ default_mongodb_init_config = "/etc/init/mongodb.conf"
 default_mongos_list = "/etc/mongos.list"
 default_wait_for = 20
 default_max_tries = 20
-mounted_data_symlink = '/srv/mongodb-data'
-data_mountpoint = '/mnt/mongodb-data'
 
 
 ###############################################################################
@@ -920,37 +910,33 @@ def config_changed():
     print "config_data: ", config_data
     mongodb_config = open(default_mongodb_config).read()
 
-    if not os.path.islink(mounted_data_symlink):
-        # We only do this if the storage subordinate hasn't given us a
-        # mountpoint.
-
-        # Trigger volume initialization logic for permanent storage
-        volid = volume_get_volume_id()
-        if not volid:
-            ## Invalid configuration (whether ephemeral, or permanent)
+    # Trigger volume initialization logic for permanent storage
+    volid = volume_get_volume_id()
+    if not volid:
+        ## Invalid configuration (whether ephemeral, or permanent)
+        stop_hook()
+        mounts = volume_get_all_mounted()
+        if mounts:
+            juju_log("current mounted volumes: {}".format(mounts))
+        juju_log(
+            "Disabled and stopped mongodb service, "
+            "because of broken volume configuration - check "
+            "'volume-ephemeral-storage' and 'volume-map'")
+        sys.exit(1)
+    if volume_is_permanent(volid):
+        ## config_changed_volume_apply will stop the service if it finds
+        ## it necessary, ie: new volume setup
+        if config_changed_volume_apply():
+            start_hook()
+        else:
             stop_hook()
             mounts = volume_get_all_mounted()
             if mounts:
                 juju_log("current mounted volumes: {}".format(mounts))
             juju_log(
-                "Disabled and stopped mongodb service, "
-                "because of broken volume configuration - check "
-                "'volume-ephemeral-storage' and 'volume-map'")
+                "Disabled and stopped mongodb service "
+                "(config_changed_volume_apply failure)")
             sys.exit(1)
-        if volume_is_permanent(volid):
-            ## config_changed_volume_apply will stop the service if it founds
-            ## it necessary, ie: new volume setup
-            if config_changed_volume_apply():
-                start_hook()
-            else:
-                stop_hook()
-                mounts = volume_get_all_mounted()
-                if mounts:
-                    juju_log("current mounted volumes: {}".format(mounts))
-                juju_log(
-                    "Disabled and stopped mongodb service "
-                    "(config_changed_volume_apply failure)")
-                sys.exit(1)
 
     # current ports
     current_mongodb_port = re.search('^#*port\s+=\s+(\w+)',
@@ -1164,9 +1150,10 @@ def replica_set_relation_changed():
 
 def data_relation_joined():
     juju_log("data_relation_joined")
+    mountpoint = relation_get('root') or '/dev/vdd'
     return(relation_set(
         {
-            'mountpoint': data_mountpoint
+            'mountpoint': mountpoint
         }))
 
 
@@ -1178,20 +1165,11 @@ def data_relation_changed():
         juju_log("mountpoint from storage subordinate not ready, let's wait")
         return(True)
 
-    if os.path.exists(mounted_data_symlink):
-        os.unlink(mounted_data_symlink)
-
-    os.symlink(mounted_data_symlink, data_mountpoint)
-
     return(config_changed())
 
 
 def data_relation_departed():
     juju_log("data_relation_departed")
-
-    if os.path.exists(mounted_data_symlink):
-        os.unlink(mounted_data_symlink)
-
     return(config_changed())
 
 
@@ -1349,6 +1327,13 @@ def volume_mount_point_from_volid(volid):
 # @returns  volid
 #           None    config state is invalid - we should not serve
 def volume_get_volume_id():
+
+    volume_map = relation_get('volume_map',
+                              os.environ['JUJU_UNIT_NAME'],
+                              'data')
+    if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
+        return volume_map[os.environ['JUJU_UNIT_NAME']]
+
     config_data = config_get()
     ephemeral_storage = config_data['volume-ephemeral-storage']
     volid = volume_get_volid_from_volume_map()
