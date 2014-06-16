@@ -1150,10 +1150,9 @@ def replica_set_relation_changed():
 
 def data_relation_joined():
     juju_log("data_relation_joined")
-    mountpoint = relation_get('root') or '/dev/vdd'
     return(relation_set(
         {
-            'mountpoint': mountpoint
+            'mountpoint': '/mnt/mongodb-data'
         }))
 
 
