@@ -1164,17 +1164,21 @@ def replica_set_relation_changed():
 
 def data_relation_joined():
     juju_log("data_relation_joined")
+    mountpoint = config_get('storage_mountpoint')
+    juju_log('mountpoint: %s' % (mountpoint,))
+
     return(relation_set(
         {
-            'mountpoint': '/mnt/mongodb-data'
+            'mountpoint': mountpoint
         }))
 
 
 def data_relation_changed():
     juju_log("data_relation_changed")
-    mount = relation_get('mount')
+    mountpoint = relation_get('mountpoint')
+    juju_log('mountpoint: %s' % (mountpoint,))
 
-    if not mount or not os.path.exists(mount):
+    if not mountpoint or not os.path.exists(mountpoint):
         juju_log("mountpoint from storage subordinate not ready, let's wait")
         return(True)
 
@@ -1345,11 +1349,11 @@ def volume_get_volume_id():
     # relation_id for the data relation
     ids = relation_ids('data')
     if len(ids) > 0:
-        volume_map = relation_get('volume_map',
-                                os.environ['JUJU_UNIT_NAME'],
-                                ids[0])
-        if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
-            return volume_map[os.environ['JUJU_UNIT_NAME']]
+        mountpoint = relation_get('mountpoint',
+                                  os.environ['JUJU_UNIT_NAME'],
+                                  ids[0])
+        if mountpoint:
+            return mountpoint
 
     config_data = config_get()
     ephemeral_storage = config_data['volume-ephemeral-storage']
