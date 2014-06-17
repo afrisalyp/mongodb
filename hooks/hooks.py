@@ -1343,11 +1343,11 @@ def volume_get_volume_id():
 
     # storage charm is a subordinate so we should only ever have one
     # relation_id for the data relation
-    relation_ids = relation_ids('data')
-    if len(relation_ids) > 0:
+    ids = relation_ids('data')
+    if len(ids) > 0:
         volume_map = relation_get('volume_map',
                                 os.environ['JUJU_UNIT_NAME'],
-                                relation_ids[0])
+                                ids[0])
         if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
             return volume_map[os.environ['JUJU_UNIT_NAME']]
 
