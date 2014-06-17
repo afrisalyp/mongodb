@@ -178,6 +178,20 @@ def relation_list(relation_id=None):
         return(relation_data)
 
 
+def relation_ids(relation_name=None):
+    juju_log("relation_ids: relation_name: %s" % relation_name)
+    try:
+        relation_cmd_line = ['relation-ids', '--format=json']
+        if relation_name is not None:
+            relation_cmd_line.append(relation_name)
+        relation_data = json.loads(subprocess.check_output(relation_cmd_line))
+    except Exception, e:
+        juju_log(str(e))
+        relation_data = None
+    finally:
+        juju_log("relation_ids %s returns: %s" % (relation_name, relation_data))
+        return(relation_data)
+
 #------------------------------------------------------------------------------
 # apt_get_install( package ):  Installs a package
 #------------------------------------------------------------------------------
@@ -1327,12 +1341,15 @@ def volume_mount_point_from_volid(volid):
 #           None    config state is invalid - we should not serve
 def volume_get_volume_id():
 
-    relation_id = "data:%s" % (os.environ['JUJU_UNIT_NAME'].split('/')[1],)
-    volume_map = relation_get('volume_map',
-                              os.environ['JUJU_UNIT_NAME'],
-                              relation_id)
-    if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
-        return volume_map[os.environ['JUJU_UNIT_NAME']]
+    # storage charm is a subordinate so we should only ever have one
+    # relation_id for the data relation
+    relation_ids = relation_ids('data')
+    if len(relation_ids) > 0:
+        volume_map = relation_get('volume_map',
+                                os.environ['JUJU_UNIT_NAME'],
+                                relation_ids[0])
+        if volume_map and os.environ['JUJU_UNIT_NAME'] in volume_map:
+            return volume_map[os.environ['JUJU_UNIT_NAME']]
 
     config_data = config_get()
     ephemeral_storage = config_data['volume-ephemeral-storage']
