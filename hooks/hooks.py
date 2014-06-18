@@ -1164,26 +1164,17 @@ def replica_set_relation_changed():
 
 def data_relation_joined():
     juju_log("data_relation_joined")
-    volume_id = volume_get_id_from_storage_subordinate()
-
-    if not volume_id:
-        juju_log("No volume_id found in storage subordinate config volume_map")
-        return(False)
-
-    mountpoint = "/srv/juju/%s" % (volume_id,)
 
     return(relation_set(
         {
-            'mountpoint': mountpoint
+            'mountpoint': '/srv/juju/mongodb-data'
         }))
 
 
 def data_relation_changed():
     juju_log("data_relation_changed")
-    mountpoint = relation_get('mountpoint')
-    juju_log('mountpoint: %s' % (mountpoint,))
 
-    if not mountpoint or not os.path.exists(mountpoint):
+    if volume_get_id_for_storage_subordinate() is None:
         juju_log("mountpoint from storage subordinate not ready, let's wait")
         return(True)
 
@@ -1346,29 +1337,24 @@ def volume_mount_point_from_volid(volid):
 
 
 #------------------------------
-# Returns a vol-id from the data relation with the storage subordinate
-# if present.
+# Returns a stub volume id based on the mountpoint from the storage
+# subordinate relation, if present.
 #
 # @return volid  eg vol-000012345
 #------------------------------
-def volume_get_id_from_storage_subordinate():
-    unit_name = os.environ['JUJU_UNIT_NAME']
-
+def volume_get_id_for_storage_subordinate():
     # storage charm is a subordinate so we should only ever have one
     # relation_id for the data relation
     ids = relation_ids('data')
     if len(ids) > 0:
-        volume_map_yaml = relation_get('volume_map',
-                                       unit_name,
-                                       ids[0])
+        mountpoint = relation_get('mountpoint',
+                                   os.environ['JUJU_UNIT_NAME'],
+                                   ids[0])
 
-        try:
-            volume_map = yaml.load(volume_map_yaml.strip())
-        except:
-            volume_map = {}
-        finally:
-            if volume_map and unit_name in volume_map:
-                return volume_map[unit_name]
+        juju_log('mountpoint: %s' % (mountpoint,))
+        if mountpoint and os.path.exists(mountpoint):
+            return mountpoint.split('/')[-1]
+
 
 
 # Do we have a valid storage state?
@@ -1377,7 +1363,7 @@ def volume_get_id_from_storage_subordinate():
 def volume_get_volume_id():
 
 
-    volid = volume_get_id_from_storage_subordinate()
+    volid = volume_get_id_for_storage_subordinate()
     if volid:
         return volid
 
