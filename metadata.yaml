@@ -22,6 +22,10 @@ provides:
     interface: mongodb
   configsvr:
     interface: shard
+  data:
+    interface: block-storage
+    scope: container
+    optional: true
 requires:
   mongos-cfg:
     interface: shard

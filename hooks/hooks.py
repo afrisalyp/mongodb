@@ -212,6 +212,20 @@ def relation_list(relation_id=None, wait_for=default_wait_for,
         return(relation_data)
 
 
+def relation_ids(relation_name=None):
+    juju_log("relation_ids: relation_name: %s" % relation_name)
+    try:
+        relation_cmd_line = ['relation-ids', '--format=json']
+        if relation_name is not None:
+            relation_cmd_line.append(relation_name)
+        relation_data = json.loads(subprocess.check_output(relation_cmd_line))
+    except Exception, e:
+        juju_log(str(e))
+        relation_data = None
+    finally:
+        juju_log("relation_ids %s returns: %s" % (relation_name, relation_data))
+        return(relation_data)
+
 #------------------------------------------------------------------------------
 # open_port:  Convenience function to open a port in juju to
 #             expose a service
@@ -930,7 +944,7 @@ def config_changed():
             "'volume-ephemeral-storage' and 'volume-map'")
         sys.exit(1)
     if volume_is_permanent(volid):
-        ## config_changed_volume_apply will stop the service if it founds
+        ## config_changed_volume_apply will stop the service if it finds
         ## it necessary, ie: new volume setup
         if config_changed_volume_apply():
             start_hook()
@@ -1159,6 +1173,30 @@ def replica_set_relation_changed():
     return(True)
 
 
+def data_relation_joined():
+    juju_log("data_relation_joined")
+
+    return(relation_set(
+        {
+            'mountpoint': '/srv/juju/mongodb-data'
+        }))
+
+
+def data_relation_changed():
+    juju_log("data_relation_changed")
+
+    if volume_get_id_for_storage_subordinate() is None:
+        juju_log("mountpoint from storage subordinate not ready, let's wait")
+        return(True)
+
+    return(config_changed())
+
+
+def data_relation_departed():
+    juju_log("data_relation_departed")
+    return(config_changed())
+
+
 def configsvr_relation_joined():
     juju_log("configsvr_relation_joined")
     my_hostname = unit_get('public-address')
@@ -1312,10 +1350,37 @@ def volume_mount_point_from_volid(volid):
     return None
 
 
+#------------------------------
+# Returns a stub volume id based on the mountpoint from the storage
+# subordinate relation, if present.
+#
+# @return volid  eg vol-000012345
+#------------------------------
+def volume_get_id_for_storage_subordinate():
+    # storage charm is a subordinate so we should only ever have one
+    # relation_id for the data relation
+    ids = relation_ids('data')
+    if len(ids) > 0:
+        mountpoint = relation_get('mountpoint',
+                                   os.environ['JUJU_UNIT_NAME'],
+                                   ids[0])
+
+        juju_log('mountpoint: %s' % (mountpoint,))
+        if mountpoint and os.path.exists(mountpoint):
+            return mountpoint.split('/')[-1]
+
+
+
 # Do we have a valid storage state?
 # @returns  volid
 #           None    config state is invalid - we should not serve
 def volume_get_volume_id():
+
+
+    volid = volume_get_id_for_storage_subordinate()
+    if volid:
+        return volid
+
     config_data = config_get()
     ephemeral_storage = config_data['volume-ephemeral-storage']
     volid = volume_get_volid_from_volume_map()
@@ -1520,6 +1585,12 @@ if __name__ == '__main__':
         retVal = mongos_relation_changed()
     elif hook_name == "mongos-relation-broken":
         retVal = mongos_relation_broken()
+    elif hook_name == "data-relation-joined":
+        retVal = data_relation_joined()
+    elif hook_name == "data-relation-changed":
+        retVal = data_relation_changed()
+    elif hook_name == "data-relation-departed":
+        retVal = data_relation_departed()
     else:
         print "Unknown hook"
         retVal = False
