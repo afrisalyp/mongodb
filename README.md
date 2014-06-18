@@ -329,7 +329,7 @@ You should see your the hosts for your shards in the status output.
 
 ### Use the storage subordinate to store mongodb data on a permanent OpenStack or Amazon EBS volume
 
-The [storage]() subordinate and [block-storage-broker]() service can automatically handle attaching the volume and mounting it to the unit before MongoDB is setup to use it.
+The [storage](http://manage.jujucharms.com/charms/precise/storage) subordinate and [block-storage-broker](http://manage.jujucharms.com/charms/precise/block-storage-broker) service can automatically handle attaching the volume and mounting it to the unit before MongoDB is setup to use it.
 
 For example if you've created the volumes `vol-id-00001` and `vol-id-00002` and want to attach them to your 2 mongo units, with your OpenStack or AWS credentials in a `credential.yaml` file:
 
