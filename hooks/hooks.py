@@ -1164,8 +1164,13 @@ def replica_set_relation_changed():
 
 def data_relation_joined():
     juju_log("data_relation_joined")
-    mountpoint = config_get('storage_mountpoint')
-    juju_log('mountpoint: %s' % (mountpoint,))
+    volume_id = volume_get_id_from_storage_subordinate()
+
+    if not volume_id:
+        juju_log("No volume_id found in storage subordinate config volume_map")
+        return(False)
+
+    mountpoint = "/srv/juju/%s" % (volume_id,)
 
     return(relation_set(
         {
@@ -1340,20 +1345,41 @@ def volume_mount_point_from_volid(volid):
     return None
 
 
-# Do we have a valid storage state?
-# @returns  volid
-#           None    config state is invalid - we should not serve
-def volume_get_volume_id():
+#------------------------------
+# Returns a vol-id from the data relation with the storage subordinate
+# if present.
+#
+# @return volid  eg vol-000012345
+#------------------------------
+def volume_get_id_from_storage_subordinate():
+    unit_name = os.environ['JUJU_UNIT_NAME']
 
     # storage charm is a subordinate so we should only ever have one
     # relation_id for the data relation
     ids = relation_ids('data')
     if len(ids) > 0:
-        mountpoint = relation_get('mountpoint',
-                                  os.environ['JUJU_UNIT_NAME'],
-                                  ids[0])
-        if mountpoint:
-            return mountpoint
+        volume_map_yaml = relation_get('volume_map',
+                                       unit_name,
+                                       ids[0])
+
+        try:
+            volume_map = yaml.load(volume_map_yaml.strip())
+        except:
+            volume_map = {}
+        finally:
+            if volume_map and unit_name in volume_map:
+                return volume_map[unit_name]
+
+
+# Do we have a valid storage state?
+# @returns  volid
+#           None    config state is invalid - we should not serve
+def volume_get_volume_id():
+
+
+    volid = volume_get_id_from_storage_subordinate()
+    if volid:
+        return volid
 
     config_data = config_get()
     ephemeral_storage = config_data['volume-ephemeral-storage']

@@ -199,9 +199,3 @@ options:
       Deprecated, use the storage subordinate.
       Block device for attached volumes as seen by the VM, will be "scanned"
       for an unused device when "volume-map" is valid for the unit.
-  storage-mountpoint:
-      type: string
-      default: "/mnt/mongodb-data"
-      description: >
-        Mountpoint to mount persistent volume to, this is sent to the
-        storage subordinate.
