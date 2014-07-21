@@ -1234,6 +1234,9 @@ def mongos_relation_changed():
                 (replicaset, hostname, port)
                 retVal2 = mongo_client(mongos_host, shard_command2)
                 retVal = retVal1 is True and retVal2 is True
+            else:
+                juju_log("Not enough config server for mongos yet.")
+                retVal = True
         else:
             juju_log("mongos_relation_change: undefined rel_type: %s" %
             rel_type)
