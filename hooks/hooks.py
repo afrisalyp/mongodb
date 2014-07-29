@@ -61,6 +61,7 @@ default_max_tries = 5
 # Supporting functions
 ###############################################################################
 
+
 def port_check(host=None, port=None, protocol='TCP'):
     if host is None or port is None:
         juju_log("port_check: host and port must be defined.")
@@ -750,7 +751,7 @@ def config_changed():
             "'volume-ephemeral-storage' and 'volume-map'")
         sys.exit(1)
     if volume_is_permanent(volid):
-        ## config_changed_volume_apply will stop the service if it founds
+        ## config_changed_volume_apply will stop the service if it finds
         ## it necessary, ie: new volume setup
         if config_changed_volume_apply():
             start_hook()
@@ -982,9 +983,32 @@ def replica_set_relation_changed():
         join_replset("%s:%s" % (master_hostname, master_port),
                      "%s:%s" % (my_hostname, my_port))
 
-    # should this always return true?
-    return(True)
 
+@hooks.hook('data-relation-joined')
+def data_relation_joined():
+    juju_log("data_relation_joined")
+
+    return(relation_set(
+        {
+            'mountpoint': '/srv/juju/mongodb-data'
+        }))
+
+
+@hooks.hook('data-relation-changed')
+def data_relation_changed():
+    juju_log("data_relation_changed")
+
+    if volume_get_id_for_storage_subordinate() is None:
+        juju_log("mountpoint from storage subordinate not ready, let's wait")
+        return(True)
+
+    config_changed()
+
+
+@hooks.hook('data-relation-departed')
+def data_relation_departed():
+    juju_log("data_relation_departed")
+    return(config_changed())
 
 @hooks.hook('configsvr-relation-joined')
 def configsvr_relation_joined():
@@ -992,13 +1016,13 @@ def configsvr_relation_joined():
     my_hostname = unit_get('public-address')
     my_port = config('config_server_port')
     my_install_order = os.environ['JUJU_UNIT_NAME'].split('/')[1]
-    return(relation_set(relation_id(),
+    relation_set(relation_id(),
                         {
                             'hostname': my_hostname,
                             'port': my_port,
                             'install-order': my_install_order,
                             'type': 'configsvr',
-                        }))
+                        })
 
 
 @hooks.hook('configsvr-relation-changed')
@@ -1064,12 +1088,13 @@ def mongos_relation_changed():
                 (replicaset, hostname, port)
                 mongo_client(mongos_host, shard_command2)
 
+
         else:
             juju_log("mongos_relation_change: undefined rel_type: %s" %
                      rel_type)
             return(False)
     juju_log("mongos_relation_changed returns: %s" % retVal)
-    return(retVal)
+
 
 
 @hooks.hook('mongos-relation-broken')
@@ -1143,18 +1168,47 @@ def volume_mount_point_from_volid(volid):
     return None
 
 
+#------------------------------
+# Returns a stub volume id based on the mountpoint from the storage
+# subordinate relation, if present.
+#
+# @return volid  eg vol-000012345
+#------------------------------
+def volume_get_id_for_storage_subordinate():
+    # storage charm is a subordinate so we should only ever have one
+    # relation_id for the data relation
+    ids = relation_ids('data')
+    if len(ids) > 0:
+        mountpoint = relation_get('mountpoint',
+                                   os.environ['JUJU_UNIT_NAME'],
+                                   ids[0])
+
+        juju_log('mountpoint: %s' % (mountpoint,))
+        if mountpoint and os.path.exists(mountpoint):
+            return mountpoint.split('/')[-1]
+
+
+
 # Do we have a valid storage state?
 # @returns  volid
 #           None    config state is invalid - we should not serve
 def volume_get_volume_id():
+
     config_data = config()
+
+
+
+    volid = volume_get_id_for_storage_subordinate()
+    if volid:
+        return volid
+
     ephemeral_storage = config_data['volume-ephemeral-storage']
     volid = volume_get_volid_from_volume_map()
     juju_unit_name = os.environ['JUJU_UNIT_NAME']
     if ephemeral_storage in [True, 'yes', 'Yes', 'true', 'True']:
         if volid:
             juju_log(
-                "volume-ephemeral-storage is True, but " +
+                "volume-ephemeral-storage is True, but"
                 "volume-map[{!r}] -> {}".format(juju_unit_name, volid))
             return None
         else:
@@ -1285,7 +1339,7 @@ def config_changed_volume_apply():
 # Write mongodb-server logrotate configuration
 #------------------------------------------------------------------------------
 def write_logrotate_config(config_data,
-                           conf_file='/etc/logrotate.d/mongodb-server'):
+                           conf_file = '/etc/logrotate.d/mongodb-server'):
 
     juju_log('Writing {}.'.format(conf_file))
     contents = dedent("""

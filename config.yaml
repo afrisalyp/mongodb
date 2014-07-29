@@ -168,7 +168,7 @@ options:
     type: int
     description: "Number of backups to keep. Keeps one week's worth by default."
   #------------------------------------------------------------------------
-  # Volume management
+  # Legacy volume management (DEPRECATED)
   #   volume-map, volume-dev_regexp are only used 
   #   if volume-ephemeral-storage == False
   #------------------------------------------------------------------------
@@ -176,6 +176,7 @@ options:
     type: boolean
     default: true
     description: >
+      Deprecated, use the storage subordinate.
       If false, a configure-error state will be raised if
          volume-map[$JUJU_UNIT_NAME] is not set (see "volume-map"
          below) - see "volume-map" below.
@@ -187,6 +188,7 @@ options:
     type: string
     default: ""
     description: >
+      Deprecated, use the storage subordinate.
       YAML map as e.g. "{ mongodb/0: vol-0000010, mongodb/1: vol-0000016 }".
       Service units will raise a "configure-error" condition if no volume-map
       value is set for it - it expects a human to set it properly to resolve it.
@@ -194,6 +196,7 @@ options:
     type: string
     default: "/dev/vd[b-z]"
     description: >
+      Deprecated, use the storage subordinate.
       Block device for attached volumes as seen by the VM, will be "scanned"
       for an unused device when "volume-map" is valid for the unit.
   source:

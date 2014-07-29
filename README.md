@@ -164,9 +164,25 @@ To verify that your sharded cluster is running, connect to the mongo shell and r
 - `run sh.status()`
 You should see your the hosts for your shards in the status output.
 
-To deploy mongodb using permanent volume on Openstack, the permanent volume should be attached to the mongodb unit just after the deployment, then the configuration should be updated like follows.
+### Use the storage subordinate to store mongodb data on a permanent OpenStack or Amazon EBS volume
 
-### Use a permanent Openstack volume to store mongodb data.
+The [storage](http://manage.jujucharms.com/charms/precise/storage) subordinate and [block-storage-broker](http://manage.jujucharms.com/charms/precise/block-storage-broker) service can automatically handle attaching the volume and mounting it to the unit before MongoDB is setup to use it.
+
+For example if you've created the volumes `vol-id-00001` and `vol-id-00002` and want to attach them to your 2 mongo units, with your OpenStack or AWS credentials in a `credential.yaml` file:
+
+    juju deploy block-storage-broker --config credentials.yaml
+    juju deploy storage
+    juju add-relation block-storage-broker storage
+    juju set storage provider=block-storage-broker
+    juju set volume_map="{mongodb/0: vol-id-00001, mongodb/1: vol-id-00002}"
+    juju add-relation storage mongodb
+
+
+### Use a permanent Openstack volume to store mongodb data. (DEPRECATED)
+
+**Note**: Although these steps will still work they are now deprecated, you should use the storage subordinate above instead.
+
+To deploy mongodb using permanent volume on Openstack, the permanent volume should be attached to the mongodb unit just after the deployment, then the configuration should be updated like follows.
 
     juju set mongodb volume-dev-regexp="/dev/vdc" volume-map='{"mongodb/0": "vol-id-00000000000000"}' volume-ephemeral-storage=false
 

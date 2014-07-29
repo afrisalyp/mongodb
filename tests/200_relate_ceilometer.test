@@ -36,7 +36,7 @@ class TestDeploy(object):
         mongo = self.deploy.sentry.unit['mongodb/0'].info['public-address']
         cont = unit.file_contents('/etc/ceilometer/ceilometer.conf')
         if mongo not in cont:
-            amulet.raise_status(amulet.FAIL, "Unable to verify ceiolmeter cfg")
+            amulet.raise_status(amulet.FAIL, "Unable to verify ceilometer cfg")
 
 if __name__ == '__main__':
     runner = TestDeploy()
