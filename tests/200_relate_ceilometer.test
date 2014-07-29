@@ -31,10 +31,11 @@ class TestDeploy(object):
             if test.startswith('test_'):
                 getattr(self, test)()
 
-    def test_mongo(self):
+    def test_mongo_relation(self):
         unit = self.deploy.sentry.unit['ceilometer/0']
+        mongo = self.deploy.sentry.unit['mongodb/0'].info['public-address']
         cont = unit.file_contents('/etc/ceilometer/ceilometer.conf')
-        if "mongodb://" not in cont:
+        if mongo not in cont:
             amulet.raise_status(amulet.FAIL, "Unable to verify ceiolmeter cfg")
 
 if __name__ == '__main__':
