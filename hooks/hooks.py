@@ -35,6 +35,7 @@ from charmhelpers.core.hookenv import (
     relation_set,
     relations_of_type,
     relation_id,
+    relation_ids,
     open_port,
     close_port,
     Hooks,
