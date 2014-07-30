@@ -1,0 +1,3 @@
+.git
+bin/*
+scripts/charm-helpers-sync.py
