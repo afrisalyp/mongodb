@@ -1062,7 +1062,7 @@ def mongos_relation_changed():
     rel_type = relation_get('type')
     if hostname is None or port is None or rel_type is None:
         print("mongos_relation_changed: relation data not ready.")
-        break
+        return
     if rel_type == 'configsvr':
         config_servers = load_config_servers(default_mongos_list)
         print "Adding config server: %s:%s" % (hostname, port)
