@@ -1083,7 +1083,7 @@ def mongos_relation_changed():
                 config('mongos_port'))
             shard_command1 = "sh.addShard(\"%s:%s\")" % (hostname, port)
             mongo_client(mongos_host, shard_command1)
-            replicaset = relation_get('replset', member)
+            replicaset = relation_get('replset')
             shard_command2 = "sh.addShard(\"%s/%s:%s\")" %  \
             (replicaset, hostname, port)
             mongo_client(mongos_host, shard_command2)
