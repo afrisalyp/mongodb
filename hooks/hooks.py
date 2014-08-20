@@ -1056,46 +1056,44 @@ def mongos_relation_changed():
     juju_log("mongos_relation_changed")
     config_data = config()
     retVal = False
-    for member in relations_of_type('mongos-cfg'):
-        hostname = relation_get('hostname', member['__unit__'])
-        port = relation_get('port', member['__unit__'])
-        rel_type = relation_get('type', member['__unit__'])
-        if hostname is None or port is None or rel_type is None:
-            juju_log("mongos_relation_changed: relation data not ready.")
-            break
-        if rel_type == 'configsvr':
-            config_servers = load_config_servers(default_mongos_list)
-            print "Adding config server: %s:%s" % (hostname, port)
-            juju_log("Adding config server: %s:%s" % (hostname, port))
-            if hostname is not None and \
-            port is not None and \
-            hostname != '' and \
-            port != '' and \
-            "%s:%s" % (hostname, port) not in config_servers:
-                config_servers.append("%s:%s" % (hostname, port))
-            disable_mongos(config_data['mongos_port'])
-            retVal = enable_mongos(config_data, config_servers)
-            if retVal:
-                update_file(default_mongos_list, '\n'.join(config_servers))
-        elif rel_type == 'database':
-            if mongos_ready():
-                mongos_host = "%s:%s" % (
-                    unit_get('public-address'),
-                    config('mongos_port'))
-                shard_command1 = "sh.addShard(\"%s:%s\")" % (hostname, port)
-                mongo_client(mongos_host, shard_command1)
-                replicaset = relation_get('replset', member)
-                shard_command2 = "sh.addShard(\"%s/%s:%s\")" %  \
-                (replicaset, hostname, port)
-                mongo_client(mongos_host, shard_command2)
 
+    hostname = relation_get('hostname')
+    port = relation_get('port')
+    rel_type = relation_get('type')
+    if hostname is None or port is None or rel_type is None:
+        print("mongos_relation_changed: relation data not ready.")
+        break
+    if rel_type == 'configsvr':
+        config_servers = load_config_servers(default_mongos_list)
+        print "Adding config server: %s:%s" % (hostname, port)
+        if hostname is not None and \
+        port is not None and \
+        hostname != '' and \
+        port != '' and \
+        if "%s:%s" % (hostname, port) not in config_servers:
+            config_servers.append("%s:%s" % (hostname, port))
+        disable_mongos(config_data['mongos_port'])
+        retVal = enable_mongos(config_data, config_servers)
+        if retVal:
+            update_file(default_mongos_list, '\n'.join(config_servers))
+    elif rel_type == 'database':
+        if mongos_ready():
+            mongos_host = "%s:%s" % (
+                unit_get('public-address'),
+                config('mongos_port'))
+            shard_command1 = "sh.addShard(\"%s:%s\")" % (hostname, port)
+            mongo_client(mongos_host, shard_command1)
+            replicaset = relation_get('replset')
+            shard_command2 = "sh.addShard(\"%s/%s:%s\")" %  \
+            (replicaset, hostname, port)
+            mongo_client(mongos_host, shard_command2)
 
-        else:
-            juju_log("mongos_relation_change: undefined rel_type: %s" %
-                     rel_type)
-            return(False)
-    juju_log("mongos_relation_changed returns: %s" % retVal)
+    else:
+        print("mongos_relation_change: undefined rel_type: %s" %
+                 rel_type)
+        return
 
+    print("mongos_relation_changed returns: %s" % retVal)
 
 
 @hooks.hook('mongos-relation-broken')
