@@ -1070,7 +1070,7 @@ def mongos_relation_changed():
         port is not None and \
         hostname != '' and \
         port != '' and \
-        if "%s:%s" % (hostname, port) not in config_servers:
+        "%s:%s" % (hostname, port) not in config_servers:
             config_servers.append("%s:%s" % (hostname, port))
         disable_mongos(config_data['mongos_port'])
         retVal = enable_mongos(config_data, config_servers)
