@@ -726,7 +726,7 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 ###############################################################################
 @hooks.hook('install')
 def install_hook():
-    log('Begin install hook.')
+    juju_log('Begin install hook.')
     execd_preinstall()
     juju_log("Installing mongodb")
     add_source(config('source'), config('key'))
