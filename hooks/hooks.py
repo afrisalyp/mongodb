@@ -43,6 +43,8 @@ from charmhelpers.core.hookenv import (
 
 from charmhelpers.core.hookenv import log as juju_log
 
+from charmhelpers.payload.execd import execd_preinstall
+
 from charmhelpers.core.host import (
     service,
 )
@@ -724,6 +726,8 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 ###############################################################################
 @hooks.hook('install')
 def install_hook():
+    juju_log('Begin install hook.')
+    execd_preinstall()
     juju_log("Installing mongodb")
     add_source(config('source'), config('key'))
     apt_update(fatal=True)
