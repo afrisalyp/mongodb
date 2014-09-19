@@ -993,7 +993,7 @@ def replica_set_relation_changed():
 def data_relation_joined():
     juju_log("data_relation_joined")
 
-    return(relation_set(
+    return(relation_set(relation_id(),
         {
             'mountpoint': '/srv/juju/mongodb-data'
         }))
