@@ -35,5 +35,5 @@ requires:
   mongos:
     interface: mongodb
 peers:
-  replica-set:
+  replicaset:
     interface: mongodb-replica-set
